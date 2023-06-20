@@ -64,11 +64,14 @@
 
         .graph {
             /* this is picked empirically and is very sensitive to display properties */
-            /* TODO: compute this on demand in JS */
+            /* note that --graph-font-size is updated from fixupFontSize() to make things work at runtime */
 
             /* 20 from my desktop monitor */
             /* 16 from my laptop monitor */
-            font: 16.4px monospace;
+            font-family: monospace;
+            font-size: var(--graph-font-size, 24px);
+            /* way too big */
+            line-height: var(--graph-line-height, 2.0);
         }
 
         .basic-block {
@@ -85,10 +88,14 @@
             border-bottom: 1px solid darkgrey;
         }
 
+
         .disassembly-line {
             display: inline-block;
-            padding-left: 3px;
             width: 100%;
+        }
+
+        .disassembly-line :first-child {
+          margin-left: 3px;
         }
 
         .disassembly-line * .token-address {
@@ -614,6 +621,56 @@
             `;
         }
 
+        function needsFontResize() {
+            // are there any disassembly lines (.location) that need more space than they have?
+            // the +6 is a fudge factor to account for padding.
+            return [...document.getElementsByClassName("disassembly-line")].filter(el => (el.scrollWidth - el.offsetWidth > 0)).length > 0;
+        }
+
+        function needsLineHeightResize() {
+            return [...document.getElementsByClassName("basic-block")].filter(el => (el.scrollHeight - el.offsetHeight > 0)).length > 0;
+        }
+
+        function fixupFontSize() {
+            // the IDA graph view export is very sensitive to font size.
+            // this is because IDA/Qt uses the screen resolution and pixel density
+            // to compute the node sizes and layout, and also relies on font choice, size, etc.
+            // while we can try to reproduce this in HTML/CSS, it'll probably never be perfect.
+            //
+            // so, we try to detect when the text is too big for the boxes, and then
+            // reduce the text size until things fit.
+            let size = 24;
+
+            while (needsFontResize()) {
+                size -= 0.2;
+                if (size <= 0) {
+                    break;
+                }
+
+                document.querySelector(":root").style.setProperty("--graph-font-size", `${size}px`); 
+            }
+        }
+
+        function fixupLineHeight() {
+            // the IDA graph view export is very sensitive to font size.
+            // this is because IDA/Qt uses the screen resolution and pixel density
+            // to compute the node sizes and layout, and also relies on font choice, size, etc.
+            // while we can try to reproduce this in HTML/CSS, it'll probably never be perfect.
+            //
+            // so, we try to detect when the text is too big for the boxes, and then
+            // reduce the line height until things fit.
+            let size = 2.0;
+
+            while (needsLineHeightResize()) {
+                size -= 0.02;
+                if (size <= 0) {
+                    break;
+                }
+
+                document.querySelector(":root").style.setProperty("--graph-line-height", `${size}`); 
+            }
+        }
+
         async function main() {
             const data = "__DATA__";
 
@@ -621,6 +678,13 @@
             document.title = `${data.sha256}: ${data.address}`;
 
             render(html`<${App} graph=${data} />`, document.body);
+
+            // these are a huge hack, but they do make the layout much more precise
+            // even when using different fonts.
+            //
+            // another hack: assume the graph is rendered within 16ms.
+            setTimeout(fixupFontSize, 16);
+            setTimeout(fixupLineHeight, 16);
         }
 
         main();
