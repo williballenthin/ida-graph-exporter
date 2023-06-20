@@ -2,7 +2,7 @@
 
 ## What?
 
-An IDAPython script for IDA PRo that allows to export a function as rendered in the graph view to an interactive HTML page.
+An IDAPython script for IDA Pro that allows to export a function as rendered in the graph view to an interactive HTML page.
 The pure Python plugin retrieves relevant information from the currently focused graph view and embeds them into the page.
 The HTML page can then be loaded into a web browser to be rendered.
 
@@ -24,6 +24,7 @@ A better solution is to emit a file with all the resources embedded within it; I
 Here is the IDA Pro graph view side-by-side with the exported graph rendered by MS Edge:
 
 ![side by side](./example/side-by-side.png)
+
 
 Note that the rendering is not perfect. Here are the things I'm aware of:
 
