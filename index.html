@@ -59,6 +59,7 @@
     <style>
         body {
             background-color: rgb(225, 240, 245);
+            overflow: hidden;
         }
 
         .graph {
@@ -67,10 +68,11 @@
 
             /* 20 from my desktop monitor */
             /* 16 from my laptop monitor */
-            font: 16.5px monospace;
+            font: 16.4px monospace;
         }
 
         .basic-block {
+            position: fixed;
             margin: -1px;
             border: 1px solid darkgrey;
             background-color: white;
@@ -85,6 +87,7 @@
 
         .disassembly-line {
             display: inline-block;
+            padding-left: 3px;
             width: 100%;
         }
 
@@ -93,11 +96,10 @@
         }
 
         svg.edge-line {
-            position: absolute;
+            position: fixed;
             top: 0px;
             left: 0px;
             overflow: visible;
-            z-index: -1;
         }
 
         svg.edge-line polyline {
@@ -109,7 +111,7 @@
     </style>
 
     <script type="module">
-        import { h, Component, render, Fragment } from 'https://esm.sh/preact';
+        import { h, Component, render, Fragment, createRef } from 'https://esm.sh/preact';
         import htm from 'https://esm.sh/htm';
 
         const html = htm.bind(h);
@@ -285,7 +287,7 @@
             8b8b00	1	0	 //Number
         `;
 
-        function swap_color_endian(color) {
+        function color_to_rgb(color) {
             return color.substring(4, 6) + color.substring(2, 4) + color.substring(0, 2);
         }
 
@@ -297,7 +299,7 @@
             }
 
             let color = line.split("	")[0];
-            color = swap_color_endian(color);
+            color = color_to_rgb(color);
 
             clr_colors.push(color);
         }
@@ -393,7 +395,7 @@
                 const children = node.children.map(renderTokens);
                 return html`<span style="color: var(--${node.color})" children=${children}></span>`;
             } else if (node.type === "address") {
-                return html`<a href="#0x${node.address.toString(0x10)}" class="token-address"><span>${node.string}</span></a>`;
+                return html`<a href="#${node.address}" class="token-address"><span>${node.string}</span></a>`;
             } else {
                 console.error("unexpected", node);
             }
@@ -409,7 +411,7 @@
 
             parseTokens(root, tokens);
 
-            // TODO: bg color
+            // TODO: bg color, broken.
 
             return html`
                 <p class="disassembly-line">
@@ -423,22 +425,25 @@
         function Location(props) {
             return html`
                 <div class="location">
-                    <span id=${"0x" + props.location.address.toString(0x10)} class="anchor"></span>
+                    <span id=${props.location.address} class="anchor"></span>
                     ${props.location.lines.map(line => html`<${DisassemblyLine} line=${line} />`)}
                 </div>
             `;
         }
 
         function BasicBlock(props) {
+            let {top, left, bottom, right} = props.basic_block.rect;
+            let height = bottom - top;
+            let width = right - left;
+
             return html`
                 <div 
                     class="basic-block" 
                     style="
-                        position: absolute; 
-                        top: ${props.basic_block.rect.top}px;
-                        left: ${props.basic_block.rect.left}px; 
-                        height: ${props.basic_block.rect.bottom - props.basic_block.rect.top}px;
-                        width: ${props.basic_block.rect.right - props.basic_block.rect.left }px;
+                        top: ${top}px;
+                        left: ${left}px; 
+                        height: ${height}px;
+                        width: ${width}px;
                     ">
                     <div class="basic-block-header"></div>
                     ${props.basic_block.locations.map(location => html`<${Location} location=${location} />`)}
@@ -449,7 +454,8 @@
         function Edge(props) {
             const points = props.edge.points.map(point => `${point.x},${point.y}`).join(" ");
 
-            // TODO: edge color
+            // TODO: edge color, broken.
+
             // TODO: edge arrow
 
             return html`
@@ -459,11 +465,143 @@
             `;
         }
 
+        class Pannable extends Component {
+            foreground_ref = createRef();
+            background_ref = createRef();
+
+            render() {
+                return html`
+                    <div ref=${this.background_ref} class="pannable-background" style="width: 100%; height: 100%;">
+                        <div ref=${this.foreground_ref} class="pannable-foreground" style="width: 100%; height: 100%;">
+                            ${this.props.children}
+                        </div>
+                    </div>
+                `;
+            }
+
+            componentDidMount() {
+                // via: https://codepen.io/loxks/details/KKpVvVW
+                let isDown = false;
+
+                // the position of the cursor at the start of a drag.
+                let startX = 0;
+                let startY = 0;
+
+                // the position of the foreground at the start of a drag.
+                // this is updated when a drag completes.
+                let x = 0;
+                let y = 0;
+
+                let velX = 0;
+                let velY = 0;
+
+                // TODO: enable scrolling
+                // TODO: enable touch interactions
+
+                this.background_ref.current.addEventListener("mousedown", (e) => {
+                    isDown = true;
+                    this.background_ref.current.classList.add("active");
+                    this.background_ref.current.style.userSelect = "none";
+                    // TODO: style: set cursor: grabbing
+
+                    startX = e.pageX;
+                    startY = e.pageY;
+                    cancelMomentumTracking();
+                });
+
+                const finish_drag = (e) => {
+                    isDown = false;
+                    this.background_ref.current.classList.remove("active");
+
+                    const dx = e.pageX - startX;
+                    const dy = e.pageY - startY;
+
+                    y = y + dy;
+                    x = x + dx;
+                };
+
+                this.background_ref.current.addEventListener("mouseleave", (e) => {
+                    if (!isDown) {
+                        return;
+                    }
+
+                    finish_drag(e);
+                    beginMomentumTracking();
+                });
+
+                this.background_ref.current.addEventListener("mouseup", (e) => {
+                    finish_drag(e);
+                    beginMomentumTracking();
+                });
+
+                // the position of the cursor at the last mousemove event
+                let lastX = 0;
+                let lastY = 0;
+
+                this.background_ref.current.addEventListener("mousemove", (e) => {
+                    if (!isDown) {
+                        return;
+                    }
+                    e.preventDefault();
+
+                    const dx = e.pageX - startX;
+                    const dy = e.pageY - startY;
+
+                    this.foreground_ref.current.style.transform = `translateX(${x + dx}px) translateY(${y + dy}px)`;
+
+                    velX = e.pageX - lastX;
+                    velY = e.pageY - lastY;
+
+                    lastX = e.pageX;
+                    lastY = e.pageY;
+                });
+
+                // Momentum
+
+                let momentumID = 0;
+                function beginMomentumTracking() {
+                    cancelMomentumTracking();
+                    momentumID = requestAnimationFrame(momentumLoop);
+                }
+
+                function cancelMomentumTracking() {
+                    cancelAnimationFrame(momentumID);
+                }
+
+                const momentumLoop = () => {
+                    x += velX;
+                    y += velY;
+
+                    this.foreground_ref.current.style.transform = `translateX(${x}px) translateY(${y}px)`;
+
+                    velX *= 0.9;
+                    velY *= 0.9;
+
+                    if (Math.abs(velX) > 0.5 || Math.abs(velY) > 0.5) {
+                        momentumID = requestAnimationFrame(momentumLoop);
+                    }
+                };
+            }
+
+            componentWillUnmount() {
+                // TODO: detach handlers
+            }
+        }
+
+
         function Graph(props) {
             return html`
-                <div class="graph">
-                    ${props.graph.basic_blocks.map(basic_block => html`<${BasicBlock} basic_block=${basic_block} />`)}
-                    ${props.graph.edges.map(edge => html`<${Edge} edge=${edge} />`)}
+                <div class="graph" style="height: 100%; width: 100%;">
+                    <${Pannable}>
+                        <!-- order of these elements is important, because they draw on top of each other, due to fixed layout -->
+
+                        <!-- this is just a large element for the mouse to grab. assume 10k pixels is big enough :-) -->
+                        <div style="height: 10000px; width: 10000px; position: fixed; top: -5000px; left: -5000px;" />
+
+                        ${props.graph.edges.map(edge => html`<${Edge} edge=${edge} />`)}
+
+                        ${props.graph.basic_blocks.map(basic_block => html`<${BasicBlock} basic_block=${basic_block} />`)}
+                    </${Pannable}>
                 </div>
             `;
         }
