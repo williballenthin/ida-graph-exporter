@@ -7,6 +7,7 @@ from typing import List
 from dataclasses import dataclass
 
 import ida_gdl
+import ida_nalt
 import ida_name
 import ida_bytes
 import ida_lines
@@ -316,6 +317,8 @@ class Edge:
 
 @dataclass
 class Graph:
+    sha256: str
+    address: Address
     basic_blocks: List[BasicBlock]
     edges: List[Edge]
 
@@ -371,7 +374,12 @@ def export_current_graph():
     # therefore, we do have to have a UI available,
     # and manipulate the current view in order to export graphs.
 
-    graph: Graph = Graph(basic_blocks=[], edges=[])
+    graph: Graph = Graph(
+        sha256=binascii.hexlify(ida_nalt.retrieve_input_file_sha256()).decode("ascii"),
+        address=Address.from_int(va),
+        basic_blocks=[], 
+        edges=[]
+    )
 
     for i in range(flowchart.size):
         # is the order guaranteed to be the same here?
@@ -452,12 +460,16 @@ def do_export_current_graph():
 
     doc = json.dumps(graph, cls=DataclassJSONEncoder, indent=2, sort_keys=True)
 
-    path = ida_kernwin.ask_file(True, "*", "json file to save graph")
+    default_filename = f"{graph.sha256}_{graph.address}.html"
+    path = ida_kernwin.ask_file(True, default_filename, "HTML file to save graph")
     if not path:
         print(doc)
         return
+    
+    template = (pathlib.Path(__file__).parent / "index_template.html").read_text(encoding="utf-8")
+    html = template.replace("\"__DATA__\"", doc)
 
-    pathlib.Path(path).write_text(doc, encoding="utf-8")
+    pathlib.Path(path).write_text(html, encoding="utf-8")
 
 
 def main():

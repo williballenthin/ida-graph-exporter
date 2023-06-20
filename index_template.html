@@ -109,10 +109,10 @@
             stroke: grey;
         }
     </style>
-
+    
     <script type="module">
-        import { h, Component, render, Fragment, createRef } from 'https://esm.sh/preact';
-        import htm from 'https://esm.sh/htm';
+        import { h, Component, render, Fragment, createRef } from 'https://esm.sh/preact@10.15.1';
+        import htm from 'https://esm.sh/htm@3.1.1';
 
         const html = htm.bind(h);
 
@@ -615,10 +615,10 @@
         }
 
         async function main() {
-            const req = await fetch("doc.json");
-            const data = await req.json();
+            const data = "__DATA__";
 
-            console.log(data)
+            console.log(data);
+            document.title = `${data.sha256}: ${data.address}`;
 
             render(html`<${App} graph=${data} />`, document.body);
         }
