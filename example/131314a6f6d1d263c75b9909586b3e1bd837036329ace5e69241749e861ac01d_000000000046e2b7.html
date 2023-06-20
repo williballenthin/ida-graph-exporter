@@ -1,0 +1,2978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>graph</title>
+
+    <style>
+        /* http://meyerweb.com/eric/tools/css/reset/ 
+        v2.0 | 20110126
+        License: none (public domain)
+        */
+
+        html, body, div, span, applet, object, iframe,
+        h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+        a, abbr, acronym, address, big, cite, code,
+        del, dfn, em, img, ins, kbd, q, s, samp,
+        small, strike, strong, sub, sup, tt, var,
+        b, u, i, center,
+        dl, dt, dd, ol, ul, li,
+        fieldset, form, label, legend,
+        table, caption, tbody, tfoot, thead, tr, th, td,
+        article, aside, canvas, details, embed, 
+        figure, figcaption, footer, header, hgroup, 
+        menu, nav, output, ruby, section, summary,
+        time, mark, audio, video {
+            margin: 0;
+            padding: 0;
+            border: 0;
+            font-size: 100%;
+            font: inherit;
+            vertical-align: baseline;
+        }
+        /* HTML5 display-role reset for older browsers */
+        article, aside, details, figcaption, figure, 
+        footer, header, hgroup, menu, nav, section {
+            display: block;
+        }
+        body {
+            line-height: 1;
+        }
+        ol, ul {
+            list-style: none;
+        }
+        blockquote, q {
+            quotes: none;
+        }
+        blockquote:before, blockquote:after,
+        q:before, q:after {
+            content: '';
+            content: none;
+        }
+        table {
+            border-collapse: collapse;
+            border-spacing: 0;
+        }
+
+    </style>
+
+    <style>
+        body {
+            background-color: rgb(225, 240, 245);
+            overflow: hidden;
+        }
+
+        .graph {
+            /* this is picked empirically and is very sensitive to display properties */
+            /* TODO: compute this on demand in JS */
+
+            /* 20 from my desktop monitor */
+            /* 16 from my laptop monitor */
+            font: 16.4px monospace;
+        }
+
+        .basic-block {
+            position: fixed;
+            margin: -1px;
+            border: 1px solid darkgrey;
+            background-color: white;
+            box-shadow: 1px 1px 3px #888888;
+        }
+
+        .basic-block .basic-block-header {
+            height: 20px;
+            width: 100%;
+            border-bottom: 1px solid darkgrey;
+        }
+
+        .disassembly-line {
+            display: inline-block;
+            padding-left: 3px;
+            width: 100%;
+        }
+
+        .disassembly-line * .token-address {
+            text-decoration: none;
+        }
+
+        svg.edge-line {
+            position: fixed;
+            top: 0px;
+            left: 0px;
+            overflow: visible;
+        }
+
+        svg.edge-line polyline {
+            fill: none;
+            stroke-width: 1;
+            stroke-linecap: round;
+            stroke: grey;
+        }
+    </style>
+    
+    <script type="module">
+        import { h, Component, render, Fragment, createRef } from 'https://esm.sh/preact@10.15.1';
+        import htm from 'https://esm.sh/htm@3.1.1';
+
+        const html = htm.bind(h);
+
+        const COLOR_INDICES = {
+            'COLOR_DEFAULT': 0x1,
+            'COLOR_REGCMT': 0x2,
+            'COLOR_RPTCMT': 0x3,
+            'COLOR_AUTOCMT': 0x4,
+            'COLOR_INSN': 0x5,
+            'COLOR_DATNAME': 0x6,
+            'COLOR_DNAME': 0x7,
+            'COLOR_DEMNAME': 0x8,
+            'COLOR_SYMBOL': 0x9,
+            'COLOR_CHAR': 0xa,
+            'COLOR_STRING': 0xb,
+            'COLOR_NUMBER': 0xc,
+            'COLOR_VOIDOP': 0xd,
+            'COLOR_CREF': 0xe,
+            'COLOR_DREF': 0xf,
+            'COLOR_CREFTAIL': 0x10,
+            'COLOR_DREFTAIL': 0x11,
+            'COLOR_ERROR': 0x12,
+            'COLOR_PREFIX': 0x13,
+            'COLOR_BINPREF': 0x14,
+            'COLOR_EXTRA': 0x15,
+            'COLOR_ALTOP': 0x16,
+            'COLOR_HIDNAME': 0x17,
+            'COLOR_LIBNAME': 0x18,
+            'COLOR_LOCNAME': 0x19,
+            'COLOR_CODNAME': 0x1A,
+            'COLOR_ASMDIR': 0x1B,
+            'COLOR_MACRO': 0x1C,
+            'COLOR_DSTR': 0x1D,
+            'COLOR_DCHAR': 0x1E,
+            'COLOR_DNUM': 0x1F,
+            'COLOR_KEYWORD': 0x20,
+            'COLOR_REG': 0x21,
+            'COLOR_IMPNAME': 0x22,
+            'COLOR_SEGNAME': 0x23,
+            'COLOR_UNKNAME': 0x24,
+            'COLOR_CNAME': 0x25,
+            'COLOR_UNAME': 0x26,
+            'COLOR_COLLAPSED': 0x27,
+            'COLOR_ADDR': 0x28,
+            'COLOR_OPND1': 0x29,
+            'COLOR_OPND2': 0x2A,
+            'COLOR_OPND3': 0x2B,
+            'COLOR_OPND4': 0x2C,
+            'COLOR_OPND5': 0x2D,
+            'COLOR_OPND6': 0x2E,
+            'COLOR_OPND7': 0x2F,
+            'COLOR_OPND8': 0x30,
+            'COLOR_UTF8': 0x32,
+            'RESERVED1': 0x33,
+            'LUMINA': 0x34,
+        };
+
+        const DEFAULT_CLR = `
+            [DISASM]
+            000000	 //
+            ff0000	 //Default color
+            ff0000	 //Regular comment
+            808080	 //Repeatable comment
+            808080	 //Automatic comment
+            800000	 //Instruction
+            800000	 //Dummy Data Name
+            ff0000	 //Regular Data Name
+            ff0000	 //Demangled Name
+            800000	 //Punctuation
+            008000	 //Char constant in instruction
+            00ff00	 //String constant in instruction
+            008000	 //Numeric constant in instruction
+            0080ff	 //Void operand
+            008000	 //Code reference
+            ff8080	 //Data reference
+            0000ff	 //Code reference to tail byte
+            008080	 //Data reference to tail byte
+            010101	 //Error or problem
+            c0c0c0	 //Line prefix
+            ff0000	 //Binary line prefix bytes
+            ff0000	 //Extra line
+            ff0000	 //Alternative operand
+            808080	 //Hidden name
+            ff8080	 //Library function name
+            008000	 //Local variable name
+            800000	 //Dummy code name
+            ff0000	 //Assembler directive
+            800080	 //Macro
+            008000	 //String constant in data directive
+            008000	 //Char constant in data directive
+            408000	 //Numeric constant in data directive
+            800000	 //Keywords
+            800000	 //Register name
+            ff00ff	 //Imported name
+            008080	 //Segment name
+            800000	 //Dummy unknown name
+            ff0000	 //Regular code name
+            800000	 //Regular unknown name
+            ff0000	 //Collapsed line
+            000000	 //Max color number
+            ffffff	 //Line prefix: library function
+            afbbc0	 //Line prefix: regular function
+            ffff00	 //Line prefix: instruction
+            000000	 //Line prefix: data
+            000080	 //Line prefix: unexplored
+            808080	 //Line prefix: externs
+            008080	 //Line prefix: current item
+            ff00ff	 //Line prefix: current line
+            000000	 //Punctuation
+            ff0000	 //Opcode bytes
+            000000	 //Manual operand
+            [NAVBAR]
+            ffffaa	 //Library function
+            e8a200	 //Regular function
+            577ab9	 //Instruction
+            c0c0c0	 //Data item
+            6bb6b6	 //Unexplored
+            ffa6ff	 //External symbol
+            5b5bff	 //Errors
+            000000	 //Gaps
+            7fffff	 //Cursor
+            00aaff	 //Address
+            [DEBUG]
+            ffd060	 //Current IP
+            ffa0a0	 //Current IP (+ enabled breakpoint)
+            408020	 //Current IP (+ disabled breakpoint)
+            ffffcc	 //Default background
+            0000ff	 //Address (+ enabled breakpoint)
+            00ff00	 //Address (+ disabled breakpoint)
+            004080	 //Current IP (+ unavailable breakpoint)
+            0080ff	 //Address (+ unavailable breakpoint)
+            000000	 //Registers
+            ff0000	 //Registers (changed)
+            800080	 //Registers (edited)
+            [ARROW]
+            c0c0c0	 //Jump in current function
+            0000ff	 //Jump external to function
+            000000	 //Jump under the cursor
+            008000	 //Jump target
+            ff4040	 //Register target
+            [GRAPH]
+            ffffff	 //Top color
+            fff8e0	 //Bottom color
+            ffffff	 //Normal title
+            f9f9b1	 //Selected title
+            cfcfa0	 //Current title
+            00ffff	 //Group frame
+            000000	 //Node shadow
+            ffffcc	 //Highlight color 1
+            ccffcc	 //Highlight color 2
+            0000ff	 //Foreign node
+            ff0000	 //Normal edge
+            008000	 //Yes edge
+            0000ff	 //No edge
+            ff00ff	 //Highlighted edge
+            ffff00	 //Current edge
+            [MISC]
+            000000	 //Message text
+            ffffff	 //Message background
+            404080	 //Patched bytes
+            0080ff	 //Unsaved changes
+            [OTHER]
+            00ffff	 //Highlight color
+            e1ffff	 //Hint color
+            [SYNTAX]
+            ff0000	0	0	 //Keyword 1
+            800080	0	0	 //Keyword 2
+            0000ff	0	0	 //Keyword 3
+            00008b	0	0	 //String
+            006400	0	1	 //Comment
+            ff0000	1	0	 //Preprocessor
+            8b8b00	1	0	 //Number
+        `;
+
+        function color_to_rgb(color) {
+            return color.substring(4, 6) + color.substring(2, 4) + color.substring(0, 2);
+        }
+
+        const clr_colors = [];
+        for (let line of DEFAULT_CLR.split("[DISASM]")[1].split("[NAVBAR]")[0].split("\n")) {
+            line = line.trim();
+            if (line.length === 0) {
+                continue;
+            }
+
+            let color = line.split("	")[0];
+            color = color_to_rgb(color);
+
+            clr_colors.push(color);
+        }
+
+        function getColor(color) {
+            return clr_colors[COLOR_INDICES[color]];
+        }
+
+        const root = document.querySelector(':root');
+        for (const name of Object.keys(COLOR_INDICES)) {
+            const color = getColor(name);
+            root.style.setProperty(`--${name}`, `#${color}`);
+        }
+
+        // parse the sequence of IDA color tokens into a tree.
+        // nodes in the tree look like:
+        //   - type: string = "string" | "color" | "address"
+        //   - children: List[Node]
+        //
+        // string nodes have additional field "string".
+        // color nodes have additional field "color".
+        // address nodes have additional fields "address" and "string".
+        function parseTokens(parent, tokens) {
+            while (tokens.length > 0) {
+                let node = null;
+
+                const token = tokens.shift();
+                if (token.type === "string") {
+                    parent.children.push({
+                        "type": "string",
+                        "string": token.string,
+                    });
+                } else if (token.type === "coloron") {
+                    if (token.color === "COLOR_PREFIX") {
+                        // special case handling of COLOR_PREFIX,
+                        // since IDA seems to emit this without a closing tag.
+                        const next_token = tokens.shift();
+                        if (next_token === undefined) {
+                            // no next, skip this node
+                            return;
+                        } else {
+                            console.assert(next_token.type === "string", "after prefix is not string");
+
+                            parent.children.push({
+                                "type": "color",
+                                "color": "COLOR_PREFIX",
+                                "children": [next_token],
+                            })
+                        }
+                    } else {
+                        const node = {
+                            "type": "color",
+                            "color": token.color,
+                            "children": [],
+                        };
+                        parent.children.push(node);
+                        parseTokens(node, tokens);
+
+                        const off_token = tokens.shift();
+                        console.assert(token.color == off_token.color, "pop wrong color");
+                    }
+                } else if (token.type === "coloroff") {
+                    tokens.unshift(token);
+                    return;
+                } else if (token.type === "address") {
+                    const next_token = tokens.shift();
+
+                    if (next_token.type !== "string") {
+                        tokens.unshift(next_token);
+                    } else {
+                        parent.children.push({
+                            "type": "address",
+                            "address": token.address,
+                            "string": next_token.string,
+                        });
+                    }
+                } else {
+                    console.error("unexpected", token);
+                }
+            }
+        }
+
+        function renderTokens(node, prefix_color) {
+            if (node.type === "string") {
+                return html`<span>${node.string}</span>`;
+            } else if (node.type === "root") {
+                const children = node.children.map(renderTokens);
+                return html`<${Fragment} children=${children}></${Fragment}>`;
+            } else if (node.type === "color" && node.color == "COLOR_PREFIX") {
+                const children = node.children.map(renderTokens);
+                return html`<span style="color: #${prefix_color}" children=${children}></span>`;
+            } else if (node.type === "color") {
+                const children = node.children.map(renderTokens);
+                return html`<span style="color: var(--${node.color})" children=${children}></span>`;
+            } else if (node.type === "address") {
+                return html`<a href="#${node.address}" class="token-address"><span>${node.string}</span></a>`;
+            } else {
+                console.error("unexpected", node);
+            }
+        }
+
+        function DisassemblyLine(props) {
+            const tokens = [...props.line.tokens];
+
+            const root = {
+                "type": "root",
+                "children": [],
+            };
+
+            parseTokens(root, tokens);
+
+            // TODO: bg color, broken.
+
+            return html`
+                <p class="disassembly-line">
+                    <pre>
+                        ${renderTokens(root, props.line.prefix_color)}
+                    </pre>
+                </p>
+            `;
+        }
+
+        function Location(props) {
+            return html`
+                <div class="location">
+                    <span id=${props.location.address} class="anchor"></span>
+                    ${props.location.lines.map(line => html`<${DisassemblyLine} line=${line} />`)}
+                </div>
+            `;
+        }
+
+        function BasicBlock(props) {
+            let {top, left, bottom, right} = props.basic_block.rect;
+            let height = bottom - top;
+            let width = right - left;
+
+            return html`
+                <div 
+                    class="basic-block" 
+                    style="
+                        top: ${top}px;
+                        left: ${left}px; 
+                        height: ${height}px;
+                        width: ${width}px;
+                    ">
+                    <div class="basic-block-header"></div>
+                    ${props.basic_block.locations.map(location => html`<${Location} location=${location} />`)}
+                </div>
+            `;
+        }
+
+        function Edge(props) {
+            const points = props.edge.points.map(point => `${point.x},${point.y}`).join(" ");
+
+            // TODO: edge color, broken.
+
+            // TODO: edge arrow
+
+            return html`
+                <svg class="edge-line">
+                    <polyline points="${points}"></polyline>
+                </svg>
+            `;
+        }
+
+        class Pannable extends Component {
+            foreground_ref = createRef();
+            background_ref = createRef();
+
+            render() {
+                return html`
+                    <div ref=${this.background_ref} class="pannable-background" style="width: 100%; height: 100%;">
+                        <div ref=${this.foreground_ref} class="pannable-foreground" style="width: 100%; height: 100%;">
+                            ${this.props.children}
+                        </div>
+                    </div>
+                `;
+            }
+
+            componentDidMount() {
+                // via: https://codepen.io/loxks/details/KKpVvVW
+                let isDown = false;
+
+                // the position of the cursor at the start of a drag.
+                let startX = 0;
+                let startY = 0;
+
+                // the position of the foreground at the start of a drag.
+                // this is updated when a drag completes.
+                let x = 0;
+                let y = 0;
+
+                let velX = 0;
+                let velY = 0;
+
+                // TODO: enable scrolling
+                // TODO: enable touch interactions
+
+                this.background_ref.current.addEventListener("mousedown", (e) => {
+                    isDown = true;
+                    this.background_ref.current.classList.add("active");
+                    this.background_ref.current.style.userSelect = "none";
+                    // TODO: style: set cursor: grabbing
+
+                    startX = e.pageX;
+                    startY = e.pageY;
+                    cancelMomentumTracking();
+                });
+
+                const finish_drag = (e) => {
+                    isDown = false;
+                    this.background_ref.current.classList.remove("active");
+
+                    const dx = e.pageX - startX;
+                    const dy = e.pageY - startY;
+
+                    y = y + dy;
+                    x = x + dx;
+                };
+
+                this.background_ref.current.addEventListener("mouseleave", (e) => {
+                    if (!isDown) {
+                        return;
+                    }
+
+                    finish_drag(e);
+                    beginMomentumTracking();
+                });
+
+                this.background_ref.current.addEventListener("mouseup", (e) => {
+                    finish_drag(e);
+                    beginMomentumTracking();
+                });
+
+                // the position of the cursor at the last mousemove event
+                let lastX = 0;
+                let lastY = 0;
+
+                this.background_ref.current.addEventListener("mousemove", (e) => {
+                    if (!isDown) {
+                        return;
+                    }
+                    e.preventDefault();
+
+                    const dx = e.pageX - startX;
+                    const dy = e.pageY - startY;
+
+                    this.foreground_ref.current.style.transform = `translateX(${x + dx}px) translateY(${y + dy}px)`;
+
+                    velX = e.pageX - lastX;
+                    velY = e.pageY - lastY;
+
+                    lastX = e.pageX;
+                    lastY = e.pageY;
+                });
+
+                // Momentum
+
+                let momentumID = 0;
+                function beginMomentumTracking() {
+                    cancelMomentumTracking();
+                    momentumID = requestAnimationFrame(momentumLoop);
+                }
+
+                function cancelMomentumTracking() {
+                    cancelAnimationFrame(momentumID);
+                }
+
+                const momentumLoop = () => {
+                    x += velX;
+                    y += velY;
+
+                    this.foreground_ref.current.style.transform = `translateX(${x}px) translateY(${y}px)`;
+
+                    velX *= 0.9;
+                    velY *= 0.9;
+
+                    if (Math.abs(velX) > 0.5 || Math.abs(velY) > 0.5) {
+                        momentumID = requestAnimationFrame(momentumLoop);
+                    }
+                };
+            }
+
+            componentWillUnmount() {
+                // TODO: detach handlers
+            }
+        }
+
+
+        function Graph(props) {
+            return html`
+                <div class="graph" style="height: 100%; width: 100%;">
+                    <${Pannable}>
+                        <!-- order of these elements is important, because they draw on top of each other, due to fixed layout -->
+
+                        <!-- this is just a large element for the mouse to grab. assume 10k pixels is big enough :-) -->
+                        <div style="height: 10000px; width: 10000px; position: fixed; top: -5000px; left: -5000px;" />
+
+                        ${props.graph.edges.map(edge => html`<${Edge} edge=${edge} />`)}
+
+                        ${props.graph.basic_blocks.map(basic_block => html`<${BasicBlock} basic_block=${basic_block} />`)}
+                    </${Pannable}>
+                </div>
+            `;
+        }
+
+        function App (props) {
+            return html`
+                <${Fragment}>
+                    <${Graph} graph=${props.graph} />
+                </${Fragment}>
+            `;
+        }
+
+        async function main() {
+            const data = {
+  "address": "000000000046e2b7",
+  "basic_blocks": [
+    {
+      "bg_color": "0xffffffff",
+      "bytes": "8bff558bec837d0c00578bf87e1b",
+      "frame_color": "0xffffffff",
+      "locations": [
+        {
+          "address": "000000000046e2b7",
+          "lines": [
+            {
+              "bg_color": "0x2a022102",
+              "is_default": false,
+              "prefix_color_name": "COLOR_REG",
+              "tokens": []
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": false,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": []
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": true,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_AUTOCMT",
+                  "type": "coloron"
+                },
+                {
+                  "string": "; Attributes: bp-based frame",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_AUTOCMT",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0x404b0000",
+              "is_default": false,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": []
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": true,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_ASMDIR",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2b7",
+                  "type": "address"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2b7",
+                  "type": "address"
+                },
+                {
+                  "string": "sub_46E2B7",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " proc near",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_ASMDIR",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": false,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": []
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": false,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloron"
+                },
+                {
+                  "string": "arg_0",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "=",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloron"
+                },
+                {
+                  "string": "dword ptr ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_DNUM",
+                  "type": "coloron"
+                },
+                {
+                  "string": " 8",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_DNUM",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": true,
+              "prefix_color_name": "COLOR_SYMBOL",
+              "tokens": [
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloron"
+                },
+                {
+                  "string": "arg_4",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "=",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloron"
+                },
+                {
+                  "string": "dword ptr ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_DNUM",
+                  "type": "coloron"
+                },
+                {
+                  "string": " 0Ch",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_DNUM",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": true,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloron"
+                },
+                {
+                  "string": "arg_8",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "=",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloron"
+                },
+                {
+                  "string": "dword ptr ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_DNUM",
+                  "type": "coloron"
+                },
+                {
+                  "string": " 10h",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_DNUM",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": true,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": []
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": false,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "mov",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "edi",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ",",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "edi",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": "sub_46E2B7"
+        },
+        {
+          "address": "000000000046e2b9",
+          "lines": [
+            {
+              "bg_color": "0x2a022102",
+              "is_default": false,
+              "prefix_color_name": "COLOR_REG",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "push",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "    ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "ebp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2ba",
+          "lines": [
+            {
+              "bg_color": "0x2a022102",
+              "is_default": false,
+              "prefix_color_name": "COLOR_REG",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "mov",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "ebp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ",",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "esp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2bc",
+          "lines": [
+            {
+              "bg_color": "0xffffffff",
+              "is_default": true,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "cmp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "[",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "ebp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "+",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloron"
+                },
+                {
+                  "string": "arg_4",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "]",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ",",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_NUMBER",
+                  "type": "coloron"
+                },
+                {
+                  "string": "0",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_NUMBER",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2c0",
+          "lines": [
+            {
+              "bg_color": "0x2a022102",
+              "is_default": false,
+              "prefix_color_name": "COLOR_REG",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "push",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "    ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "edi",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2c1",
+          "lines": [
+            {
+              "bg_color": "0x2a022102",
+              "is_default": false,
+              "prefix_color_name": "COLOR_REG",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "mov",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "edi",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ",",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "eax",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2c3",
+          "lines": [
+            {
+              "bg_color": "0xffffffff",
+              "is_default": true,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "jle",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloron"
+                },
+                {
+                  "string": "short ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2e0",
+                  "type": "address"
+                },
+                {
+                  "string": "loc_46E2E0",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        }
+      ],
+      "range": {
+        "end": "000000000046e2c5",
+        "start": "000000000046e2b7"
+      },
+      "rect": {
+        "bottom": 366,
+        "left": 14,
+        "right": 272,
+        "top": 0
+      }
+    },
+    {
+      "bg_color": "0xffffffff",
+      "bytes": "56",
+      "frame_color": "0xffffffff",
+      "locations": [
+        {
+          "address": "000000000046e2c5",
+          "lines": [
+            {
+              "bg_color": "0x0",
+              "is_default": true,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "push",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "    ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "esi",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        }
+      ],
+      "range": {
+        "end": "000000000046e2c6",
+        "start": "000000000046e2c5"
+      },
+      "rect": {
+        "bottom": 444,
+        "left": 84,
+        "right": 240,
+        "top": 398
+      }
+    },
+    {
+      "bg_color": "0xffffffff",
+      "bytes": "8b45108b7508ff4d0ce89dffffff833fff7406",
+      "frame_color": "0xffffffff",
+      "locations": [
+        {
+          "address": "000000000046e2c6",
+          "lines": [
+            {
+              "bg_color": "0xffffffff",
+              "is_default": false,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": []
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": false,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "address": "000000000046e2c6",
+                  "type": "address"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2c6",
+                  "type": "address"
+                },
+                {
+                  "string": "loc_46E2C6",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ":",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": true,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "mov",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "eax",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ",",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "[",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "ebp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "+",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloron"
+                },
+                {
+                  "string": "arg_8",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "]",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": "loc_46E2C6"
+        },
+        {
+          "address": "000000000046e2c9",
+          "lines": [
+            {
+              "bg_color": "0x1902345f",
+              "is_default": true,
+              "prefix_color_name": "COLOR_LOCNAME",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "mov",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "esi",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ",",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "[",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "ebp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "+",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloron"
+                },
+                {
+                  "string": "arg_0",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "]",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2cc",
+          "lines": [
+            {
+              "bg_color": "0x1902345f",
+              "is_default": true,
+              "prefix_color_name": "COLOR_LOCNAME",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "dec",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "[",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "ebp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "+",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloron"
+                },
+                {
+                  "string": "arg_4",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "]",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2cf",
+          "lines": [
+            {
+              "bg_color": "0x36345f62",
+              "is_default": true,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "call",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "    ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e271",
+                  "type": "address"
+                },
+                {
+                  "string": "sub_46E271",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2d4",
+          "lines": [
+            {
+              "bg_color": "0xdddddd",
+              "is_default": true,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "cmp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloron"
+                },
+                {
+                  "string": "dword ptr",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "[",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "edi",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "]",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ",",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_NUMBER",
+                  "type": "coloron"
+                },
+                {
+                  "string": "0FFFFFFFFh",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_NUMBER",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2d7",
+          "lines": [
+            {
+              "bg_color": "0xdddddd",
+              "is_default": true,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "jz",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "      ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloron"
+                },
+                {
+                  "string": "short ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2df",
+                  "type": "address"
+                },
+                {
+                  "string": "loc_46E2DF",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        }
+      ],
+      "range": {
+        "end": "000000000046e2d9",
+        "start": "000000000046e2c6"
+      },
+      "rect": {
+        "bottom": 660,
+        "left": 7,
+        "right": 328,
+        "top": 474
+      }
+    },
+    {
+      "bg_color": "0xffffffff",
+      "bytes": "837d0c007fe7",
+      "frame_color": "0xffffffff",
+      "locations": [
+        {
+          "address": "000000000046e2d9",
+          "lines": [
+            {
+              "bg_color": "0xdddddd",
+              "is_default": true,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "cmp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "[",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "ebp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "+",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloron"
+                },
+                {
+                  "string": "arg_4",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_LOCNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": "]",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ",",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_NUMBER",
+                  "type": "coloron"
+                },
+                {
+                  "string": "0",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_NUMBER",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND2",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2dd",
+          "lines": [
+            {
+              "bg_color": "0x1b7",
+              "is_default": true,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "jg",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "      ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloron"
+                },
+                {
+                  "string": "short ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_KEYWORD",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2c6",
+                  "type": "address"
+                },
+                {
+                  "string": "loc_46E2C6",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        }
+      ],
+      "range": {
+        "end": "000000000046e2df",
+        "start": "000000000046e2d9"
+      },
+      "rect": {
+        "bottom": 756,
+        "left": 106,
+        "right": 328,
+        "top": 690
+      }
+    },
+    {
+      "bg_color": "0xffffffff",
+      "bytes": "5e",
+      "frame_color": "0xffffffff",
+      "locations": [
+        {
+          "address": "000000000046e2df",
+          "lines": [
+            {
+              "bg_color": "0x6f6c3045",
+              "is_default": true,
+              "prefix_color_name": "LUMINA",
+              "tokens": []
+            },
+            {
+              "bg_color": "0x3",
+              "is_default": true,
+              "prefix_color_name": "COLOR_INSN",
+              "tokens": [
+                {
+                  "address": "000000000046e2df",
+                  "type": "address"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2df",
+                  "type": "address"
+                },
+                {
+                  "string": "loc_46E2DF",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ":",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0xffffffff",
+              "is_default": false,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "pop",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "esi",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": "loc_46E2DF"
+        }
+      ],
+      "range": {
+        "end": "000000000046e2e0",
+        "start": "000000000046e2df"
+      },
+      "rect": {
+        "bottom": 878,
+        "left": 40,
+        "right": 196,
+        "top": 792
+      }
+    },
+    {
+      "bg_color": "0xffffffff",
+      "bytes": "5f5dc3",
+      "frame_color": "0xffffffff",
+      "locations": [
+        {
+          "address": "000000000046e2e0",
+          "lines": [
+            {
+              "bg_color": "0x1902345f",
+              "is_default": true,
+              "prefix_color_name": "COLOR_LOCNAME",
+              "tokens": []
+            },
+            {
+              "bg_color": "0xffffffff",
+              "is_default": false,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": [
+                {
+                  "address": "000000000046e2e0",
+                  "type": "address"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2e0",
+                  "type": "address"
+                },
+                {
+                  "string": "loc_46E2E0",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloron"
+                },
+                {
+                  "string": ":",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_SYMBOL",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": false,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "pop",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "edi",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": "loc_46E2E0"
+        },
+        {
+          "address": "000000000046e2e1",
+          "lines": [
+            {
+              "bg_color": "0xffffffff",
+              "is_default": false,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "pop",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                },
+                {
+                  "string": "     ",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloron"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloron"
+                },
+                {
+                  "string": "ebp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_REG",
+                  "type": "coloroff"
+                },
+                {
+                  "color": "COLOR_OPND1",
+                  "type": "coloroff"
+                }
+              ]
+            }
+          ],
+          "name": ""
+        },
+        {
+          "address": "000000000046e2e2",
+          "lines": [
+            {
+              "bg_color": "0x6f6c3045",
+              "is_default": true,
+              "prefix_color_name": "LUMINA",
+              "tokens": [
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloron"
+                },
+                {
+                  "string": "retn",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_INSN",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0xffffffff",
+              "is_default": false,
+              "prefix_color_name": "COLOR_AUTOCMT",
+              "tokens": [
+                {
+                  "color": "COLOR_ASMDIR",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2b7",
+                  "type": "address"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloron"
+                },
+                {
+                  "address": "000000000046e2b7",
+                  "type": "address"
+                },
+                {
+                  "string": "sub_46E2B7",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_CODNAME",
+                  "type": "coloroff"
+                },
+                {
+                  "string": " endp",
+                  "type": "string"
+                },
+                {
+                  "color": "COLOR_ASMDIR",
+                  "type": "coloroff"
+                }
+              ]
+            },
+            {
+              "bg_color": "0x0",
+              "is_default": false,
+              "prefix_color_name": "COLOR_UNSET",
+              "tokens": []
+            }
+          ],
+          "name": ""
+        }
+      ],
+      "range": {
+        "end": "000000000046e2e3",
+        "start": "000000000046e2e0"
+      },
+      "rect": {
+        "bottom": 1074,
+        "left": 47,
+        "right": 203,
+        "top": 908
+      }
+    }
+  ],
+  "edges": [
+    {
+      "color": "0x8113e245",
+      "points": [
+        {
+          "x": 133,
+          "y": 366
+        },
+        {
+          "x": 133,
+          "y": 384
+        },
+        {
+          "x": 162,
+          "y": 384
+        },
+        {
+          "x": 162,
+          "y": 398
+        }
+      ]
+    },
+    {
+      "color": "0x8113e244",
+      "points": [
+        {
+          "x": 153,
+          "y": 366
+        },
+        {
+          "x": 153,
+          "y": 380
+        },
+        {
+          "x": 338,
+          "y": 380
+        },
+        {
+          "x": 338,
+          "y": 774
+        },
+        {
+          "x": 206,
+          "y": 774
+        },
+        {
+          "x": 206,
+          "y": 893
+        },
+        {
+          "x": 135,
+          "y": 893
+        },
+        {
+          "x": 135,
+          "y": 908
+        }
+      ]
+    },
+    {
+      "color": "0x8113e243",
+      "points": [
+        {
+          "x": 162,
+          "y": 444
+        },
+        {
+          "x": 162,
+          "y": 459
+        },
+        {
+          "x": 157,
+          "y": 459
+        },
+        {
+          "x": 157,
+          "y": 474
+        }
+      ]
+    },
+    {
+      "color": "0x8113e245",
+      "points": [
+        {
+          "x": 177,
+          "y": 660
+        },
+        {
+          "x": 177,
+          "y": 675
+        },
+        {
+          "x": 217,
+          "y": 675
+        },
+        {
+          "x": 217,
+          "y": 690
+        }
+      ]
+    },
+    {
+      "color": "0x8113e244",
+      "points": [
+        {
+          "x": 157,
+          "y": 660
+        },
+        {
+          "x": 157,
+          "y": 675
+        },
+        {
+          "x": 0,
+          "y": 675
+        },
+        {
+          "x": 0,
+          "y": 770
+        },
+        {
+          "x": 108,
+          "y": 770
+        },
+        {
+          "x": 108,
+          "y": 792
+        }
+      ]
+    },
+    {
+      "color": "0x8113e244",
+      "points": [
+        {
+          "x": 227,
+          "y": 756
+        },
+        {
+          "x": 227,
+          "y": 770
+        },
+        {
+          "x": 324,
+          "y": 770
+        },
+        {
+          "x": 324,
+          "y": 778
+        },
+        {
+          "x": 445,
+          "y": 778
+        },
+        {
+          "x": 445,
+          "y": 459
+        },
+        {
+          "x": 287,
+          "y": 459
+        },
+        {
+          "x": 287,
+          "y": 459
+        },
+        {
+          "x": 177,
+          "y": 459
+        },
+        {
+          "x": 177,
+          "y": 474
+        }
+      ]
+    },
+    {
+      "color": "0x8113e245",
+      "points": [
+        {
+          "x": 207,
+          "y": 756
+        },
+        {
+          "x": 207,
+          "y": 770
+        },
+        {
+          "x": 128,
+          "y": 770
+        },
+        {
+          "x": 128,
+          "y": 792
+        }
+      ]
+    },
+    {
+      "color": "0x8113e243",
+      "points": [
+        {
+          "x": 118,
+          "y": 878
+        },
+        {
+          "x": 118,
+          "y": 893
+        },
+        {
+          "x": 115,
+          "y": 893
+        },
+        {
+          "x": 115,
+          "y": 908
+        }
+      ]
+    }
+  ],
+  "sha256": "131314a6f6d1d263c75b9909586b3e1bd837036329ace5e69241749e861ac01d"
+};
+
+            console.log(data);
+            document.title = `${data.sha256}: ${data.address}`;
+
+            render(html`<${App} graph=${data} />`, document.body);
+        }
+
+        main();
+    </script>
+</head>
+<body>
+
+</body>
+</html>
